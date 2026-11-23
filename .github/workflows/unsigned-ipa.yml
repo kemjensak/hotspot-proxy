@@ -1,0 +1,41 @@
+name: Unsigned IPA
+on:
+  push:
+    branches: [build/unsigned-ipa]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Release for generic iOS device without signing
+        run: |
+          xcodebuild -version
+          xcodebuild \
+            -project HotspotProxy.xcodeproj \
+            -scheme HotspotProxy \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build
+      # Ad-hoc signing only embeds the app-group entitlements, so Sideloadly/AltStore
+      # can read and remap them to the installer's own team when re-signing.
+      - name: Embed entitlements and package IPA
+        run: |
+          APP=build/DerivedData/Build/Products/Release-iphoneos/HotspotProxy.app
+          codesign --force --sign - --entitlements Config/HotspotProxyWidget.entitlements "$APP/PlugIns/HotspotProxyWidget.appex"
+          codesign --force --sign - --entitlements Config/HotspotProxy.entitlements "$APP"
+          codesign -d --entitlements - "$APP"
+          mkdir -p ipa/Payload
+          cp -R "$APP" ipa/Payload/
+          (cd ipa && zip -qry ../HotspotProxy-unsigned.ipa Payload)
+          ls -lh HotspotProxy-unsigned.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HotspotProxy-unsigned-ipa
+          path: HotspotProxy-unsigned.ipa
+          if-no-files-found: error
